@@ -1,6 +1,8 @@
 // Copyright (c) Viable Systems and TezEdge Contributors
 // SPDX-License-Identifier: MIT
 
+use std::sync::atomic::AtomicUsize;
+
 #[cfg(doc)]
 use crate::*;
 
@@ -1505,6 +1507,22 @@ macro_rules! expand_rooted_args_init {
     };
 }
 
+pub static NRUN: AtomicUsize = AtomicUsize::new(0);
+
+pub struct Nruns(pub usize);
+
+impl Nruns {
+    pub fn start() -> Self {
+        Self(NRUN.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1)
+    }
+}
+
+impl Drop for Nruns {
+    fn drop(&mut self) {
+        NRUN.fetch_sub(1, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 #[doc(hidden)]
 #[macro_export]
 macro_rules! expand_exported_function {
@@ -1521,6 +1539,8 @@ macro_rules! expand_exported_function {
     } => {
         #[no_mangle]
         pub extern "C" fn $name( $($arg: $typ),* ) -> $crate::expand_exported_function_return!($($rtyp)*) {
+            let nruns = ocaml_interop::Nruns::start();
+            eprintln!("\x1b[93mrust_ffi: nruns={:?} {:?} pid={:?} {:?}\x1b[0m", nruns.0, std::thread::current().id(), std::process::id(), stringify!($name));
             let $cr = unsafe { &mut $crate::OCamlRuntime::recover_handle() };
             $crate::expand_rooted_args_init!($cr, $($original_args)*);
             $crate::expand_exported_function_body!(
